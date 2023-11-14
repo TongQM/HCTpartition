@@ -38,6 +38,14 @@ class Square:
         return (k, b)
 
 
+class c2d_map:
+    def __init__(self, c, square) -> None:
+        self.c = c
+        self.square = square
+
+    def find_d(self):
+        pass
+
 class Node:
     def __init__(self, c_range, lb, ub, father, children=[]) -> None:
         self.c_range = c_range
@@ -199,4 +207,4 @@ plt.legend()
 # Show the plot
 plt.grid(True)
 plt.title('Square with Line')
-plt.show()
+plt.savefig('2-partition-BB.png')

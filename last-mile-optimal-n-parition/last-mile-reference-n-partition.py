@@ -33,9 +33,9 @@ def density_func(r, t):
     # Parameters of the Gaussian peaks: (center_r, center_theta, amplitude, width)
     # You need to convert the (center_x, center_y) of each peak to polar coordinates as well
     peaks_polar = [
-        (0.424, np.arctan2(0.3, 0.3), 1.0, 0.1),  # Converted (0.3, 0.3) to polar
-        (0.566, np.arctan2(0.4, -0.4), 1.0, 0.1), # Converted (-0.4, 0.4) to polar
-        (0.5, np.arctan2(-0.5, 0.0), 1.0, 0.1)     # Converted (0, -0.5) to polar
+        (0.424, np.arctan2(0.3, 0.3), 1.0/3, 0.3),  # Converted (0.3, 0.3) to polar
+        (0.6, np.arctan2(0.4, -0.4), 1.0/3, 0.2), # Converted (-0.4, 0.4) to polar
+        (0.5, np.arctan2(-0.5, 0.0), 1.0/3, 0.2)     # Converted (0, -0.5) to polar
     ]
     
     # Initialize the density to zero
@@ -267,7 +267,7 @@ class Node:
     
 
 class BranchAndBound:
-    def __init__(self, region, density_func, initial_node, tol=0.01, maxiter=1000) -> None:
+    def __init__(self, region, density_func, initial_node, tol=0.005, maxiter=1000) -> None:
         '''
         compact set: the set of whole region;
         '''

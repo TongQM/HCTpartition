@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import gurobipy as gp
-from scipy import integrate, optimize
+from scipy import integrate, optimize, stats
 from math import sqrt, pi
 from numba import jit, njit
 
@@ -25,39 +25,47 @@ def distance(xc, yc):
 
 @njit
 def density_func(r, t):
-    return 1/(2*pi)*np.exp(-t**2/2)
+    if t < 0 or t > 2*pi:
+        t = t % (2*pi)
+    x = r * np.cos(t)
+    y = r * np.sin(t)
+    
+    # Parameters of the Gaussian peaks: (center_r, center_theta, amplitude, width)
+    # You need to convert the (center_x, center_y) of each peak to polar coordinates as well
+    peaks_polar = [
+        (0.424, np.arctan2(0.3, 0.3), 1.0, 0.1),  # Converted (0.3, 0.3) to polar
+        (0.566, np.arctan2(0.4, -0.4), 1.0, 0.1), # Converted (-0.4, 0.4) to polar
+        (0.5, np.arctan2(-0.5, 0.0), 1.0, 0.1)     # Converted (0, -0.5) to polar
+    ]
+    
+    # Initialize the density to zero
+    density = 0
+    
+    # Sum the contributions from each Gaussian peak
+    for (center_r, center_theta, amplitude, width) in peaks_polar:
+        # Calculate the Cartesian coordinates of the peak center
+        center_x = center_r * np.cos(center_theta)
+        center_y = center_r * np.sin(center_theta)
+        
+        # Calculate the squared distance from the peak center in Cartesian coordinates
+        distance_squared = (x - center_x)**2 + (y - center_y)**2
+        
+        # Gaussian function value for this peak
+        gaussian_value = amplitude * np.exp(-distance_squared / (2 * width**2))
+        
+        # Add the value to the total density
+        density += gaussian_value
+    
+    return density
 
 @njit
-def indicator(r, t, i, phis, depots):
-    '''
-    This function judges whether the point (rc, tc) belongs to the ith district
-    rc, tc: the polar coordinate of the point to be considered
-    i: the index of the district
-    phis: the [starting angle, ending angle] of districts
-    '''
-    if t < phis[i][1] and t >= phis[i][0]: return 1
-    return 0
+def integrand(r, t, density_func):
+    return sqrt(density_func(r, t))*r
 
 
-def make_i_indicator(i, phis, region):
-    '''
-    This function makes an indicator function that judges whether the point (xc, yc) belongs to the ith district
-    i: the index of the district
-    depots: the coordinates of the depots
-    '''
-    # @njit
-    def i_indicator(r, t):
-        return indicator(r, t, i, phis, region.depots)
-    return i_indicator
-
-# @njit
-def integrand(r, t, district_indicator, density_func):
-    return density_func(r, t)*district_indicator(r, t)*r
-
-
-def BHHcoef(i, phis, density_func, region):
-    district_indicator = make_i_indicator(i, phis, region)
-    coef, error = integrate.dblquad(integrand, 0, 2*pi, lambda _: 0, lambda _: region.radius, args=(district_indicator, density_func))
+def BHHcoef(trange, density_func, region):
+    start, end = trange
+    coef, error = integrate.dblquad(integrand, start, end, lambda _: 0, lambda _: region.radius, args=(density_func,))
     return coef # error
 
 # Classes
@@ -148,6 +156,20 @@ class Polyhedron:
         model_min.optimize()
 
         return [phi_min[i].X, phi_max[i].X]
+    
+    def find_min_value_of(self, k):
+        '''
+        Find the minimum value of k'th decision variable
+        '''
+        model_min = gp.Model('min')
+        model_min.setParam('OutputFlag', 0)
+        phi_min = model_min.addMVar(shape=self.dim, lb=0, ub=pi, name='phi')
+        model_min.addConstr(self.B @ phi_min == self.c)
+        model_min.addConstr(self.A @ phi_min <= self.b)
+        model_min.setObjective(phi_min[k], gp.GRB.MINIMIZE)
+        model_min.optimize()
+
+        return phi_min[k].X
 
     def get_ranges(self):
         '''
@@ -166,27 +188,32 @@ class Polyhedron:
 class Node:
     def __init__(self, density_func, region, polyhedron, father) -> None:
         '''
-        ri_range, an n x 2 array where ith row denotes the range of xi_i for this node
-        father, the father 
         n, the dimension of xi, i.e. the number of districts
         '''
-        self.n = polyhedron.dim
+        self.n = polyhedron.dim // 2
         self.density_func = density_func
         self.region = region
         self.polyhedron = polyhedron
         self.father = father
+
         self.children = []
         self.lb = self.get_lb(density_func)
         self.ub = self.get_ub(density_func)
 
-    def parition2range(self, partition):
+
+    def parition2trange(self, partition):
         '''
-        partition, a list of n-1 numbers, which are the boundaries of the n districts
+        partition, feasible solution in the node's polyhedron
+        output a list of tranges, each row corresponding to a district
         '''
-        partition = np.array(partition)
-        partition = np.append(partition, 2*pi)
-        partition = np.insert(partition, 0, 0)
-        return np.array([partition[:-1], partition[1:]]).T
+        tranges = []
+        for i in range(self.n):
+            if i == 0:
+                tranges.append([-partition[2*i - 1], partition[2*i]])
+            else:
+                tranges.append([sum(partition[:2*i - 1]), sum(partition[:2*i + 1])])
+        tranges = np.array(tranges)*2*pi
+        return tranges
 
     def get_median(self):
         '''
@@ -195,35 +222,28 @@ class Node:
         analytic_center, analytic_center_val = self.polyhedron.find_analytic_center(np.ones(self.n))
         return analytic_center
     
-    def evaluate_single_BHHcoef(self, i, phis, density_func):
-        return BHHcoef(i, phis, density_func, self.region)
+    def evaluate_single_BHHcoef(self, trange, density_func):
+        return BHHcoef(trange, density_func, self.region)
     
-    def evaluate(self, phis, density_func):
-        BHHcoefs_ls = np.array([self.evaluate_single_BHHcoef(i, phis, density_func) for i in range(self.n)])
-        denominator = sum(BHHcoefs_ls)
-        return BHHcoefs_ls/denominator, denominator, BHHcoefs_ls
+    def evaluate(self, tranges, density_func):
+        BHHcoefs_ls = np.array([self.evaluate_single_BHHcoef(tranges[i], density_func) for i in range(self.n)])
+        return BHHcoefs_ls
 
     def get_lb(self, density_func):
-        
-        # xi_max = self.ri_range[:, 1]
-        # w_max = self.xi2w(xi_max)
-        # print(f"DEBUG: xi_max {xi_max}\n w_max {w_max}")
-        # denominator = self.evaluate(w_max, density_func)[1]
-
-        # xi_i_ls = []
-        # for i in range(self.n):
-        #     xi_i = self.ri_range[:, 1]
-        #     xi_i[i] = self.ri_range[i, 0]
-        #     xi_i_ls.append(xi_i)
-        # w_i_ls = [self.xi2w(xi_i) for xi_i in xi_i_ls]
-        # biggest_wi_BHHcoef = max([self.evaluate_single_BHHcoef(i, w_i_ls[i],density_func) for i in range(self.n)])
-        # self.lb = biggest_wi_BHHcoef/denominator
-        return 0
+        BHHcoef_ls = []
+        for i in range(self.n):
+            t1 = self.polyhedron.find_min_value_of(2*i - 1)
+            t2 = self.polyhedron.find_min_value_of(2*i)
+            trange = np.array([i/3 - t1, i/3 + t2])*2*pi
+            BHHcoef = self.evaluate_single_BHHcoef(trange, density_func)
+            BHHcoef_ls.append(BHHcoef)
+        self.lb = max(BHHcoef_ls)
+        return self.lb
     
     def get_ub(self, density_func):
         partition_median = self.get_median()
-        phis_median = self.parition2range(partition_median)
-        self.ub = max(self.evaluate(phis_median, density_func)[0])
+        phis_median = self.parition2trange(partition_median)
+        self.ub = max(self.evaluate(phis_median, density_func))
         return self.ub
     
     def branch(self):
@@ -234,9 +254,9 @@ class Node:
         wide_i = np.argmax(ranges[:, 1] - ranges[:, 0])
         range_i = ranges[wide_i]
         median_i = (range_i[0] + range_i[1])/2
-        print(f"DEBUG: wide_i: {wide_i}\n\t range_i: {range_i}\n\t median_i: {median_i}")
-        node1_polyhedron = self.polyhedron.add_ineq_constraint(np.array([0 if i != wide_i else 1 for i in range(self.n)]), median_i)
-        node2_polyhedron = self.polyhedron.add_ineq_constraint(np.array([0 if i != wide_i else -1 for i in range(self.n)]), -median_i)
+        # print(f"DEBUG: wide_i: {wide_i}\n\t range_i: {range_i}\n\t median_i: {median_i}")
+        node1_polyhedron = self.polyhedron.add_ineq_constraint(np.array([0 if i != wide_i else 1 for i in range(self.n*2)]), median_i)
+        node2_polyhedron = self.polyhedron.add_ineq_constraint(np.array([0 if i != wide_i else -1 for i in range(self.n*2)]), -median_i)
         node1 = Node(self.density_func, self.region, node1_polyhedron, self)
         node2 = Node(self.density_func, self.region, node2_polyhedron, self)
         self.children = [node1, node2]
@@ -247,13 +267,14 @@ class Node:
     
 
 class BranchAndBound:
-    def __init__(self, region, density_func, initial_node, tol=1e-3) -> None:
+    def __init__(self, region, density_func, initial_node, tol=0.01, maxiter=1000) -> None:
         '''
         compact set: the set of whole region;
         '''
         self.region = region
         self.density_func = density_func
         self.tol = tol
+        self.maxiter = maxiter
 
         self.current_node = initial_node
         lb, ub = self.current_node.get_bounds(density_func)
@@ -283,14 +304,16 @@ class BranchAndBound:
     
 
     def solve(self):
-
-        while self.best_ub - self.worst_lb > self.tol and self.best_ub >= 1/n + 0.01:
+        counter = 0
+        bounds_tracker = {}
+        while self.best_ub - self.worst_lb > self.tol and counter < self.maxiter:
             # Branch and bound
             node = self.unexplored_node_ls[0]
             self.unexplored_node_ls.remove(node)
             new_node1, new_node2 = self.branch(node)
             self.node_ls = self.node_ls + node.children
             self.unexplored_node_ls = self.unexplored_node_ls + node.children
+
             bds_ls = [self.get_iter_bds(node) for node in self.node_ls]
             self.lb_ls = [bd[0] for bd in bds_ls]
             self.ub_ls = [bd[1] for bd in bds_ls]
@@ -305,28 +328,42 @@ class BranchAndBound:
             for node in self.unexplored_node_ls:
                 if node.lb > self.best_ub:
                     self.unexplored_node_ls.remove(node)
+            counter += 1
+            bounds_tracker[counter] = (self.best_ub, self.worst_lb)
         
         best_node = min(self.node_ls, key=lambda node: node.ub)
 
-        return best_node
+        return best_node, bounds_tracker
     
 
 n = 3
 radius = 10
 region = Region(radius=radius)
 
-A = np.eye(n)
-b = np.ones(n)*pi
-B = np.ones((1, n))
-c = 2*pi
-initial_polyhedtron = Polyhedron(A, b, B, c, n)
-initial_node = Node(density_func, region, initial_polyhedtron, None)
-problem = BranchAndBound(region, density_func, initial_node)
-best_node = problem.solve()
+A1 = np.zeros((n, 2*n))
+for i in range(n):
+    A1[i, 2*i-1] = 1
+    A1[i, 2*i] = 1
+A2 = -np.eye(2*n)
+A = np.append(A1, A2, axis=0)
 
-# write a function to cumulate numbers in a list
-def cumulate(ls):
-    cumulated_ls = []
-    for i in range(len(ls)):
-        cumulated_ls.append(sum(ls[:i+1]))
-    return cumulated_ls
+b1 = np.ones(n)*1/2
+b2 = np.zeros(2*n)
+b = np.append(b1, b2)
+
+B = np.zeros((n, 2*n))
+for i in range(n):
+    B[i, 2*i] = 1
+    B[i, 2*i+1] = 1
+c = 1/n
+
+initial_polyhedron = Polyhedron(A, b, B, c, 2*n)
+initial_node = Node(density_func, region=region, polyhedron=initial_polyhedron, father=None)
+problem = BranchAndBound(region, density_func, initial_node)
+best_node, bounds_tracker = problem.solve()
+lb_ls = [bd[0] for bd in bounds_tracker.values()]
+ub_ls = [bd[1] for bd in bounds_tracker.values()]
+plt.plot(lb_ls, label='lb')
+plt.plot(ub_ls, label='ub')
+plt.legend()
+plt.show()

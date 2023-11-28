@@ -4,9 +4,39 @@ import gurobipy as gp
 from scipy import integrate, optimize, stats
 from math import sqrt, pi
 from numba import jit, njit
+from findWorstTSPDensity import findWorstTSPDensity
+from classes import Region, Demands_generator, Demand, Coordinate
 
 counter = 0
 # Help functions
+
+def show_density(f_tilde, resolution=100, t=0.4, dmd_index=0, start=0, end=2*pi):
+    f = f_tilde
+    fig = plt.figure()
+    ax = fig.add_subplot(projection='polar')
+
+    # Create the mesh in polar coordinates and compute corresponding Z.
+    r = np.linspace(0, region.radius, resolution)
+    p = np.linspace(0, 2*np.pi, resolution)
+    R, P = np.meshgrid(r, p)
+    f_vectorized = np.vectorize(f)
+    Z = f_vectorized(R, P)
+
+    # Plot the surface.
+    plt.grid(False)
+    ctf = ax.pcolormesh(P, R, Z, cmap=plt.colormaps['Greys'], shading='auto')
+    ax.scatter(generator.thetas, generator.rs, c='yellow')
+
+    # Add color bar
+    plt.colorbar(ctf)
+
+    # Tweak the limits and add latex math labels.
+    # ax.set_xlabel(r'$X$')
+    # ax.set_ylabel(r'$Y$')
+
+    # fig.show()
+    plt.savefig(f'pics/{dmd_index}-{t}.png')
+
 
 def polar2Cartesian(r, theta):
     return np.array([r*np.cos(theta), r*np.sin(theta)])
@@ -25,46 +55,18 @@ def distance(xc, yc):
 
 @njit
 def density_func(r, t):
-    if t < 0 or t > 2*pi:
-        t = t % (2*pi)
-    x = r * np.cos(t)
-    y = r * np.sin(t)
-    
-    # Parameters of the Gaussian peaks: (center_r, center_theta, amplitude, width)
-    # You need to convert the (center_x, center_y) of each peak to polar coordinates as well
-    peaks_polar = [
-        (0.424, np.arctan2(0.3, 0.3), 1.0/3, 0.3),  # Converted (0.3, 0.3) to polar
-        (0.6, np.arctan2(0.4, -0.4), 1.0/3, 0.2), # Converted (-0.4, 0.4) to polar
-        (0.5, np.arctan2(-0.5, 0.0), 1.0/3, 0.2)     # Converted (0, -0.5) to polar
-    ]
-    
-    # Initialize the density to zero
-    density = 0
-    
-    # Sum the contributions from each Gaussian peak
-    for (center_r, center_theta, amplitude, width) in peaks_polar:
-        # Calculate the Cartesian coordinates of the peak center
-        center_x = center_r * np.cos(center_theta)
-        center_y = center_r * np.sin(center_theta)
-        
-        # Calculate the squared distance from the peak center in Cartesian coordinates
-        distance_squared = (x - center_x)**2 + (y - center_y)**2
-        
-        # Gaussian function value for this peak
-        gaussian_value = amplitude * np.exp(-distance_squared / (2 * width**2))
-        
-        # Add the value to the total density
-        density += gaussian_value
-    
+    raise NotImplementedError 
     return density
 
-@njit
+# @njit
 def integrand(r, t, density_func):
     return sqrt(density_func(r, t))*r
 
 
 def BHHcoef(trange, density_func, region):
     start, end = trange
+    density_func = findWorstTSPDensity(region, demands, trange, t=1, epsilon=0.1, tol=1e-3)
+    show_density(density_func, resolution=100, t=0.25, start=start, end=end)
     coef, error = integrate.dblquad(integrand, start, end, lambda _: 0, lambda _: region.radius, args=(density_func,))
     return coef # error
 
@@ -267,7 +269,7 @@ class Node:
     
 
 class BranchAndBound:
-    def __init__(self, region, density_func, initial_node, tol=0.005, maxiter=1000) -> None:
+    def __init__(self, region, density_func, initial_node, tol=0.1, maxiter=1000) -> None:
         '''
         compact set: the set of whole region;
         '''
@@ -356,6 +358,13 @@ for i in range(n):
     B[i, 2*i] = 1
     B[i, 2*i+1] = 1
 c = 1/n
+
+generator = Demands_generator(region, 3)
+t, epsilon = 0.25, 0.1
+tol = 1e-4
+demands = generator.generate()
+demands_locations = np.array([demands[i].get_cdnt() for i in range(len(demands))])
+
 
 initial_polyhedron = Polyhedron(A, b, B, c, 2*n)
 initial_node = Node(density_func, region=region, polyhedron=initial_polyhedron, father=None)

@@ -130,7 +130,7 @@ class Polyhedron:
 
         objective = lambda x: -np.sum(np.log(self.b - self.A @ x + 1e-6))  # To ensure log(b - A @ x) is defined.
         objective_jac = lambda x: np.sum(np.array([self.A[i, :]/(self.b[i] - self.A[i, :] @ x) for i in range(self.A.shape[0])]), axis=0)
-        result = optimize.minimize(objective, x0, method='SLSQP', constraints=[self.ineq_constraints, self.eq_constraints], jac='cs', tol=0.1, options={'disp': True})
+        result = optimize.minimize(objective, x0, method='SLSQP', constraints=[self.ineq_constraints, self.eq_constraints], jac='cs', tol=0.1, options={'disp': False})
         assert result.success, result.message
         analytic_center, analytic_center_val = result.x, result.fun            
         return analytic_center, analytic_center_val
@@ -278,8 +278,8 @@ class BranchAndBound:
         self.tol = tol
         self.maxiter = maxiter
 
-        self.current_node = initial_node
-        lb, ub = self.current_node.get_bounds(density_func)
+        self.initial_node = initial_node
+        lb, ub = self.initial_node.get_bounds(density_func)
         self.node_ls = [initial_node]
         self.unexplored_node_ls = self.node_ls[:]
         self.best_ub = ub
@@ -321,8 +321,9 @@ class BranchAndBound:
             self.ub_ls = [bd[1] for bd in bds_ls]
             
             # Pruning unnecessary nodes
-            self.best_ub = min(self.ub_ls)
-            self.worst_lb = min(self.lb_ls)
+            # self.best_ub = min(self.ub_ls)
+            # self.worst_lb = min(self.lb_ls)
+            self.worst_lb, self.best_ub = self.get_iter_bds(self.initial_node)
             print(f"DEBUG: best ub: {self.best_ub}\n\t worst lb: {self.worst_lb}\n\t gap: {self.best_ub - self.worst_lb}.")
             for node in self.node_ls:
                 if node.lb > self.best_ub:

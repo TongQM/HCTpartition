@@ -1,10 +1,12 @@
 from typing import Literal
 import numpy as np
+import time
 import pandas as pd
 import matplotlib.pyplot as plt
+from openpyxl import load_workbook
 import numba as nb
 from scipy import optimize, integrate, linalg
-from classes import Region, Coordinate, Demands_generator, Demand
+from classes import Region, Coordinate, Demands_generator, Demand, append_df_to_csv
 
 tol = 1e-3
 # Instrumental functions
@@ -58,7 +60,11 @@ def jac_integrandj(r: float, theta: float, lambdas: list[float], v: list[float],
 
 def objective_function(v: list[float], demands_locations: list[list[float]], lambdas: list[float], t: float, region_radius, thetarange) -> float:
     start, end = thetarange
+    problem7_integration_time_tracker = pd.DataFrame(columns=['time'])
+    start_time_problem7_integration = time.time()
     sum_integral, error = integrate.dblquad(integrand, start, end, lambda _: 0, lambda _: region_radius, args=(lambdas, v, demands_locations), epsabs=tol)
+    problem7_integration_time_tracker = problem7_integration_time_tracker.append({'time': time.time() - start_time_problem7_integration}, ignore_index=True)
+    append_df_to_csv('problem7_integration_time_tracker.csv', problem7_integration_time_tracker)
     return 1/4*sum_integral + v[0]*t + np.mean(v[1:])
 
 

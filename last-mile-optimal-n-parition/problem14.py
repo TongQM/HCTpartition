@@ -1,9 +1,12 @@
 import numpy as np
+import time
+from openpyxl import load_workbook
+from pathlib import Path
 import pandas as pd
 import matplotlib.pyplot as plt
 import numba as nb
 from scipy import optimize, integrate, linalg
-from classes import Region, Coordinate, Demands_generator
+from classes import Region, Coordinate, Demands_generator, append_df_to_csv
 
 
 tol = 1e-3
@@ -42,7 +45,11 @@ def jac_integrand1(r: float, theta: float, v, demands_locations, lambdas):
 # @nb.jit(nopython=True)
 def objective_function(v, demands_locations, lambdas, t, region_radius, thetarange):
     start, end = thetarange
+    problem14_intergation_time_tracker = pd.DataFrame(columns=['time'])
+    start_time_problem14_integration = time.time()
     area, error = integrate.dblquad(integrand, start, end, lambda _: 0, lambda _: region_radius, args=(v, demands_locations, lambdas), epsabs=tol)
+    problem14_intergation_time_tracker = problem14_intergation_time_tracker.append({'time': time.time() - start_time_problem14_integration}, ignore_index=True)
+    append_df_to_csv('problem14_integration_time_tracker.csv', problem14_intergation_time_tracker)
     # print(f"DEBUG: area is {area}, v is {v}, t is {t}, start is {start}, end is {end}.")
     return area + v[0]*t + v[1]
 
@@ -53,10 +60,10 @@ def objective_jac(v, demands_locations, lambdas, t, region_radius, thetarange):
     return np.array([area0 + t, area1 + 1])
 
 def constraint_and_jac(demands_locations, lambdas, region_radius):
-    x_in_R_constraint = optimize.NonlinearConstraint(lambda x: np.sqrt(x[0]**2 + x[1]**2), 0, region_radius)
-    result = optimize.minimize(lambda x_cdnt: min_modified_norm(x_cdnt, demands_locations, lambdas), x0 = np.ones(2), method='SLSQP', constraints=x_in_R_constraint)
-    return np.array([result.fun, 1]), np.array([result.fun, 1]) # because the constraint below is v0*modified_min_norm + v1 >= 0
-
+    # x_in_R_constraint = optimize.NonlinearConstraint(lambda x: np.sqrt(x[0]**2 + x[1]**2), 0, region_radius)
+    # result = optimize.minimize(lambda x_cdnt: min_modified_norm(x_cdnt, demands_locations, lambdas), x0 = np.ones(2), method='SLSQP', constraints=x_in_R_constraint)
+    # return np.array([result.fun, 1]), np.array([result.fun, 1]) # because the constraint below is v0*modified_min_norm + v1 >= 0
+    return np.array([min(-lambdas), 1]), np.array([min(-lambdas), 1])
 
 def minimize_problem14(demands, thetarange, lambdas, t, region_radius):
     demands_locations = np.array([demands[i].get_cdnt() for i in range(len(demands))])

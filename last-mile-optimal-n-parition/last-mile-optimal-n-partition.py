@@ -1,11 +1,14 @@
+from time import time
 import numpy as np
+import pandas as pd
+from pathlib import Path
 import matplotlib.pyplot as plt
 import gurobipy as gp
 from scipy import integrate, optimize, stats
 from math import sqrt, pi
 from numba import jit, njit
 from findWorstTSPDensity import findWorstTSPDensity
-from classes import Region, Demands_generator, Demand, Coordinate
+from classes import Region, Demands_generator, Demand, Coordinate, append_df_to_csv
 
 # Help functions
 
@@ -14,6 +17,7 @@ def polar2Cartesian(r, theta):
 
 def Cartesian2polar(x, y):
     return np.array([np.sqrt(x**2 + y**2), np.arctan2(y, x)])
+
 
 @njit
 def distance(xc, yc):
@@ -66,15 +70,21 @@ def integrand(r, t, density_func):
 
 def BHHcoef(trange, density_func, region):
     start, end = trange
+    std_start, std_end = start % (2*pi), end % (2*pi)
     # print(f"DEBUG: modified start is {start}, modified end is {end}.")
-    if start <= end:
-        demands_within = np.array([dmd for dmd in demands if dmd.location.theta >= start % (2*pi) and dmd.location.theta <= end % (2*pi)])
+    if std_start <= std_end:
+        demands_within = np.array([dmd for dmd in demands if dmd.location.theta >= std_start and dmd.location.theta <= std_end])
     else:
-        demands_within = np.array([dmd for dmd in demands if dmd.location.theta >= start % (2*pi) or dmd.location.theta <= end % (2*pi)])
+        demands_within = np.array([dmd for dmd in demands if dmd.location.theta >= std_start or dmd.location.theta <= std_end])
     if demands_within.size == 0:
         print(f'DEBUG: No demands within {trange}.')
         return 0
+    print(f"DEBUG: demands_within {demands_within} is in {std_start, std_end}.")
+    find_worstTSPDensity_time_tracker = pd.DataFrame(columns=['time'])
+    start_time_findWorstTSPDensity = time()
     density_func = findWorstTSPDensity(region, demands_within, trange, t=1, epsilon=0.1, tol=1e-3)
+    find_worstTSPDensity_time_tracker.loc = find_worstTSPDensity_time_tracker.append({'time': time() - start_time_findWorstTSPDensity}, ignore_index=True)
+    append_df_to_csv('find_worstTSPDensity_time_tracker.csv', find_worstTSPDensity_time_tracker)
     coef, error = integrate.dblquad(integrand, start, end, lambda _: 0, lambda _: region.radius, args=(density_func,))
     return coef # error
 
@@ -135,11 +145,11 @@ class Polyhedron:
         find_feasible_sol.optimize()
         # assert find_feasible_sol.status == gp.GRB.OPTIMAL, find_feasible_sol.status
         x0 = x.X
-        print(f"DEBUG: x0 is {x0}.")
+        # print(f"DEBUG: x0 is {x0}.")
 
         objective = lambda x: -np.sum(np.log(self.b - self.A @ x + 1e-6))  # To ensure log(b - A @ x) is defined.
         objective_jac = lambda x: np.sum(np.array([self.A[i, :]/(self.b[i] - self.A[i, :] @ x) for i in range(self.A.shape[0])]), axis=0)
-        result = optimize.minimize(objective, x0, method='SLSQP', constraints=[self.ineq_constraints, self.eq_constraints], jac='cs', tol=0.1, options={'disp': True})
+        result = optimize.minimize(objective, x0, method='SLSQP', constraints=[self.ineq_constraints, self.eq_constraints], jac='cs', tol=0.1, options={'disp': False})
         # assert result.success, result.message
         analytic_center, analytic_center_val = result.x, result.fun            
         return analytic_center, analytic_center_val
@@ -256,12 +266,14 @@ class Node:
         for i in range(self.n):
             t1 = self.polyhedron.find_extreme_value_of(2*i, sense='max')
             t2 = self.polyhedron.find_extreme_value_of(2*i + 1, sense='min')
-            # print(f"DEBUG: t1 is {t1}, t2 is {t2}.")
+            print(f"DEBUG: t1 is {t1}, t2 is {t2}.")
             if t1 > t2:
-                return 0
-            trange = np.array([t1, t2])*2*pi
-            BHHcoef = self.evaluate_single_BHHcoef(trange, density_func)
-            BHHcoef_ls.append(BHHcoef)
+                BHHcoef_ls.append(0)
+            else:
+                trange = np.array([t1, t2])*2*pi
+                BHHcoef = self.evaluate_single_BHHcoef(trange, density_func)
+                BHHcoef_ls.append(BHHcoef)
+            print(f"DEBUG: To find the lower bound, the BHHcoef is {BHHcoef} for [t1, t2]: {trange}.")
         self.lb = max(BHHcoef_ls)
         return self.lb
     
@@ -292,7 +304,7 @@ class Node:
     
 
 class BranchAndBound:
-    def __init__(self, region, density_func, initial_node, tol=0.01 , maxiter=1000) -> None:
+    def __init__(self, region, density_func, initial_node, tol=0.01 , maxiter=10) -> None:
         '''
         compact set: the set of whole region;
         '''
@@ -301,8 +313,8 @@ class BranchAndBound:
         self.tol = tol
         self.maxiter = maxiter
 
-        self.current_node = initial_node
-        lb, ub = self.current_node.get_bounds(density_func)
+        self.initial_node = initial_node
+        lb, ub = self.initial_node.get_bounds(density_func)
         self.node_ls = [initial_node]
         self.unexplored_node_ls = self.node_ls[:]
         self.best_ub = ub
@@ -331,8 +343,11 @@ class BranchAndBound:
     def solve(self):
         counter = 0
         bounds_tracker = {}
+        iter_time_tracker = pd.DataFrame(columns=['iter', 'time'])
+        iter_start_time = time()
         while self.best_ub - self.worst_lb > self.tol and counter < self.maxiter:
             # Branch and bound
+            print(f"DEBUG: BRANCH AND BOUND: Iteration {counter} begins.")
             node = self.unexplored_node_ls[0]
             self.unexplored_node_ls.remove(node)
             new_node1, new_node2 = self.branch(node)
@@ -344,8 +359,9 @@ class BranchAndBound:
             self.ub_ls = [bd[1] for bd in bds_ls]
             
             # Pruning unnecessary nodes
-            self.best_ub = min(self.ub_ls)
-            self.worst_lb = min(self.lb_ls)
+            # self.best_ub = min(self.ub_ls)
+            # self.worst_lb = min(self.lb_ls)
+            self.worst_lb, self.best_ub = self.get_iter_bds(self.initial_node)
             print(f"DEBUG: best ub: {self.best_ub}\n\t worst lb: {self.worst_lb}\n\t gap: {self.best_ub - self.worst_lb}.")
             for node in self.node_ls:
                 if node.lb > self.best_ub:
@@ -353,8 +369,12 @@ class BranchAndBound:
             for node in self.unexplored_node_ls:
                 if node.lb > self.best_ub:
                     self.unexplored_node_ls.remove(node)
+            print(f"DEBUG: BRANCH AND BOUND: Iteration {counter} ends.")
             counter += 1
             bounds_tracker[counter] = (self.best_ub, self.worst_lb)
+            iter_time_tracker = iter_time_tracker.append({'iter': counter, 'time': time() - iter_start_time}, ignore_index=True)
+
+        iter_time_tracker.to_csv('iter_time_tracker.csv')
         
         best_node = min(self.node_ls, key=lambda node: node.ub)
 

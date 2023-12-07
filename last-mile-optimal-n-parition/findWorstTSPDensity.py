@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import time
 import numba as nb
 from problem14 import minimize_problem14, min_modified_norm
-from problem7 import minimize_problem7, constraint_func, categorize_x, region_indicator, norm_func
+from problem7 import minimize_problem7, categorize_x, region_indicator, norm_func
 from classes import Coordinate, Region, Demands_generator, Polyhedron, append_df_to_csv
 from scipy import optimize, integrate, linalg
 
@@ -45,30 +45,30 @@ def findWorstTSPDensity(region: Region, demands, thetarange: list=[0, 2*np.pi], 
         demands_locations = np.array([demands[i].get_cdnt() for i in range(len(demands))])
 
         '''Build an upper bounding f_bar for the original problem (4).'''
-        find_upper_bound_time_tracker = pd.DataFrame(columns=['time'])
-        start_time_find_upper_bound = time.time()
+        # find_upper_bound_time_tracker = pd.DataFrame(columns=['time'])
+        # start_time_find_upper_bound = time.time()
         v_bar, problem14_func_val = minimize_problem14(demands, thetarange, lambdas_bar, t, region.radius)
         upper_integrand = lambda r, theta: r*np.sqrt(f_bar(r, theta, demands_locations, lambdas_bar, v_bar))
         UB, UB_error = integrate.dblquad(upper_integrand, start, end, lambda _: 0, lambda _: region.radius,epsabs=tol)
         time2 = time.time()
-        find_upper_bound_time_tracker = find_upper_bound_time_tracker.append({'time': time2 - start_time_find_upper_bound}, ignore_index=True)
+        # find_upper_bound_time_tracker = find_upper_bound_time_tracker.append({'time': time2 - start_time_find_upper_bound}, ignore_index=True)
         if UB < 0:
             print(f'UB is negative: {UB}.')
             print(f'v_bar is {v_bar}, problem14_func_val is {problem14_func_val}.')
             break
         # print(f'Find upper bound: Upper bound is {UB}, with error {UB_error}, took {time2 - time1}s.')
-        append_df_to_csv('find_upper_bound_time_tracker.csv', find_upper_bound_time_tracker)
+        # append_df_to_csv('find_upper_bound_time_tracker.csv', find_upper_bound_time_tracker)
 
         '''Build an lower bounding f_tilde that us feasible for (4) by construction.'''
-        find_lower_bound_time_tracker = pd.DataFrame(columns=['time'])
-        start_time_find_lower_bound = time.time()
+        # find_lower_bound_time_tracker = pd.DataFrame(columns=['time'])
+        # start_time_find_lower_bound = time.time()
         v_tilde, problem7_func_val = minimize_problem7(lambdas_bar, demands, thetarange, t, region.radius)
         lower_integrand = lambda r, theta, demands_locations, lambdas_bar, v_tilde: r*np.sqrt(f_tilde(r, theta, demands_locations, lambdas_bar, v_tilde))
         LB, LB_error = integrate.dblquad(lower_integrand, start, end, lambda _: 0, lambda _: region.radius, args=(demands_locations, lambdas_bar, v_tilde), epsabs=tol)
-        time3 = time.time()
-        find_lower_bound_time_tracker = find_lower_bound_time_tracker.append({'time': time3 - start_time_find_lower_bound}, ignore_index=True)
+        # time3 = time.time()
+        # find_lower_bound_time_tracker = find_lower_bound_time_tracker.append({'time': time3 - start_time_find_lower_bound}, ignore_index=True)
         # print(f'Find lower bound: Lower bound is {LB}, with error {LB_error}, took {time3 - time2}s.\n')
-        append_df_to_csv('find_lower_bound_time_tracker.csv', find_lower_bound_time_tracker)
+        # append_df_to_csv('find_lower_bound_time_tracker.csv', find_lower_bound_time_tracker)
 
         '''Update g.'''
         g = np.zeros(len(demands))

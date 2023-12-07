@@ -45,11 +45,11 @@ def jac_integrand1(r: float, theta: float, v, demands_locations, lambdas):
 # @nb.jit(nopython=True)
 def objective_function(v, demands_locations, lambdas, t, region_radius, thetarange):
     start, end = thetarange
-    problem14_intergation_time_tracker = pd.DataFrame(columns=['time'])
-    start_time_problem14_integration = time.time()
+    # problem14_intergation_time_tracker = pd.DataFrame(columns=['time'])
+    # start_time_problem14_integration = time.time()
     area, error = integrate.dblquad(integrand, start, end, lambda _: 0, lambda _: region_radius, args=(v, demands_locations, lambdas), epsabs=tol)
-    problem14_intergation_time_tracker = problem14_intergation_time_tracker.append({'time': time.time() - start_time_problem14_integration}, ignore_index=True)
-    append_df_to_csv('problem14_integration_time_tracker.csv', problem14_intergation_time_tracker)
+    # problem14_intergation_time_tracker = problem14_intergation_time_tracker.append({'time': time.time() - start_time_problem14_integration}, ignore_index=True)
+    # append_df_to_csv('problem14_integration_time_tracker.csv', problem14_intergation_time_tracker)
     # print(f"DEBUG: area is {area}, v is {v}, t is {t}, start is {start}, end is {end}.")
     return area + v[0]*t + v[1]
 

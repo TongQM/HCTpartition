@@ -79,12 +79,12 @@ def BHHcoef(trange, density_func, region):
     if demands_within.size == 0:
         print(f'DEBUG: No demands within {trange}.')
         return 0
-    print(f"DEBUG: demands_within {demands_within} is in {std_start, std_end}.")
-    find_worstTSPDensity_time_tracker = pd.DataFrame(columns=['time'])
-    start_time_findWorstTSPDensity = time()
+    # print(f"DEBUG: demands_within {demands_within} is in {std_start, std_end}.")
+    # find_worstTSPDensity_time_tracker = pd.DataFrame(columns=['time'])
+    # start_time_findWorstTSPDensity = time()
     density_func = findWorstTSPDensity(region, demands_within, trange, t=1, epsilon=0.1, tol=1e-3)
-    find_worstTSPDensity_time_tracker.loc = find_worstTSPDensity_time_tracker.append({'time': time() - start_time_findWorstTSPDensity}, ignore_index=True)
-    append_df_to_csv('find_worstTSPDensity_time_tracker.csv', find_worstTSPDensity_time_tracker)
+    # find_worstTSPDensity_time_tracker.loc = find_worstTSPDensity_time_tracker.append({'time': time() - start_time_findWorstTSPDensity}, ignore_index=True)
+    # append_df_to_csv('find_worstTSPDensity_time_tracker.csv', find_worstTSPDensity_time_tracker)
     coef, error = integrate.dblquad(integrand, start, end, lambda _: 0, lambda _: region.radius, args=(density_func,))
     return coef # error
 
@@ -343,8 +343,8 @@ class BranchAndBound:
     def solve(self):
         counter = 0
         bounds_tracker = {}
-        iter_time_tracker = pd.DataFrame(columns=['iter', 'time'])
-        iter_start_time = time()
+        # iter_time_tracker = pd.DataFrame(columns=['iter', 'time'])
+        # iter_start_time = time()
         while self.best_ub - self.worst_lb > self.tol and counter < self.maxiter:
             # Branch and bound
             print(f"DEBUG: BRANCH AND BOUND: Iteration {counter} begins.")
@@ -372,9 +372,9 @@ class BranchAndBound:
             print(f"DEBUG: BRANCH AND BOUND: Iteration {counter} ends.")
             counter += 1
             bounds_tracker[counter] = (self.best_ub, self.worst_lb)
-            iter_time_tracker = iter_time_tracker.append({'iter': counter, 'time': time() - iter_start_time}, ignore_index=True)
+            # iter_time_tracker = iter_time_tracker.append({'iter': counter, 'time': time() - iter_start_time}, ignore_index=True)
 
-        iter_time_tracker.to_csv('iter_time_tracker.csv')
+        # iter_time_tracker.to_csv('iter_time_tracker.csv')
         
         best_node = min(self.node_ls, key=lambda node: node.ub)
 

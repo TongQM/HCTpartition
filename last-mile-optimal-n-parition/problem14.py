@@ -1,15 +1,13 @@
 import numpy as np
 import time
 from openpyxl import load_workbook
-from pathlib import Path
-import pandas as pd
-import matplotlib.pyplot as plt
+import torch
+import torchquad
 import numba as nb
 from scipy import optimize, integrate, linalg
 from classes import Region, Coordinate, Demands_generator, append_df_to_csv
 
-
-tol = 1e-3
+# Some previously used instrumental functions
 @nb.jit(nopython=True)
 def norm_func(x, y):
     return np.sqrt(np.sum(np.square(x - y)))
@@ -20,58 +18,84 @@ def min_modified_norm(x_cdnt, demands_locations, lambdas):
     norms = np.array([norm_func(x_cdnt, demands_locations[i]) - lambdas[i] for i in range(n)])
     return np.min(norms)
 
-@nb.njit
-def integrand(r: float, theta: float, v, demands_locations, lambdas):
-    # Calculate a list of ||x-xi|| - lambda_i
-    x_cdnt = np.array([r*np.cos(theta), r*np.sin(theta)])
-    raw_intgrd = 1/(4*(v[0]*min_modified_norm(x_cdnt, demands_locations, lambdas) + v[1]))
-    return raw_intgrd*r    # r as Jacobian
-
-@nb.njit
-def jac_integrand0(r: float, theta: float, v, demands_locations, lambdas):
-    x_cdnt = np.array([r*np.cos(theta), r*np.sin(theta)])
-    the_min_modified_norm = min_modified_norm(x_cdnt, demands_locations, lambdas)
-    raw_intgrd = -4*the_min_modified_norm / pow(4*(v[0]*the_min_modified_norm + v[1]), 2)
-    return raw_intgrd*r
-
-@nb.njit
-def jac_integrand1(r: float, theta: float, v, demands_locations, lambdas):
-    x_cdnt = np.array([r*np.cos(theta), r*np.sin(theta)])
-    the_min_modified_norm = min_modified_norm(x_cdnt, demands_locations, lambdas)
-    raw_intgrd = -4 / pow(4*(v[0]*the_min_modified_norm + v[1]), 2)
-    return raw_intgrd*r
+# Current implementation involving torchquad and vectorized integrands
+def integrand(X, v, demands_locations, lambdas):
+    '''
+    X is a n-by-2 matrix, the first column is r, the second column is theta.
+    '''
+    dtype = X.dtype
+    lambdas, v1, v0 = torch.tensor(lambdas, dtype=dtype), torch.tensor(v[1:], dtype=dtype), v[0]
+    demands_locations = torch.tensor(demands_locations, dtype=dtype)
+    x_cdnt = X.clone()
+    x_cdnt[:, 0] = X[:, 0]*torch.cos(x_cdnt[:, 1])
+    x_cdnt[:, 1] = X[:, 0]*torch.sin(x_cdnt[:, 1])
+    norms = torch.cdist(x_cdnt, demands_locations, p=2)
+    modified_norms, modified_norms_indices = torch.min(norms - lambdas, dim=1)
+    raw_intgrd = 1 / (v[0]*modified_norms + v[1])
+    return X[:, 0]*raw_intgrd    # r as Jacobian
 
 
-# @nb.jit(nopython=True)
+def jac_integrand0(X, v, demands_locations, lambdas):
+    '''
+    X is a n-by-2 matrix, the first column is r, the second column is theta.
+    '''
+    dtype = X.dtype
+    lambdas, v1, v0 = torch.tensor(lambdas, dtype=dtype), torch.tensor(v[1:], dtype=dtype), v[0]
+    demands_locations = torch.tensor(demands_locations, dtype=dtype)
+    x_cdnt = X.clone()
+    x_cdnt[:, 0] = X[:, 0]*torch.cos(x_cdnt[:, 1])
+    x_cdnt[:, 1] = X[:, 0]*torch.sin(x_cdnt[:, 1])
+    norms = torch.cdist(x_cdnt, demands_locations, p=2)
+    modified_norms, modified_norms_indices = torch.min(norms - lambdas, dim=1)
+    raw_intgrd = -modified_norms / torch.square(v[0]*modified_norms + v[1])
+    return X[:, 0]*raw_intgrd
+
+
+def jac_integrand1(X, v, demands_locations, lambdas):
+    '''
+    X is a n-by-2 matrix, the first column is r, the second column is theta.
+    '''
+    dtype = X.dtype
+    lambdas, v1, v0 = torch.tensor(lambdas, dtype=dtype), torch.tensor(v[1:], dtype=dtype), v[0]
+    demands_locations = torch.tensor(demands_locations, dtype=dtype)
+    x_cdnt = X.clone()
+    x_cdnt[:, 0] = X[:, 0]*torch.cos(x_cdnt[:, 1])
+    x_cdnt[:, 1] = X[:, 0]*torch.sin(x_cdnt[:, 1])
+    norms = torch.cdist(x_cdnt, demands_locations, p=2)
+    modified_norms, modified_norms_indices = torch.min(norms - lambdas, dim=1)
+    raw_intgrd = -1 / torch.square(v[0]*modified_norms + v[1])
+    return X[:, 0]*raw_intgrd
+
 def objective_function(v, demands_locations, lambdas, t, region_radius, thetarange):
     start, end = thetarange
-    # problem14_intergation_time_tracker = pd.DataFrame(columns=['time'])
-    # start_time_problem14_integration = time.time()
-    area, error = integrate.dblquad(integrand, start, end, lambda _: 0, lambda _: region_radius, args=(v, demands_locations, lambdas), epsabs=tol)
-    # problem14_intergation_time_tracker = problem14_intergation_time_tracker.append({'time': time.time() - start_time_problem14_integration}, ignore_index=True)
-    # append_df_to_csv('problem14_integration_time_tracker.csv', problem14_intergation_time_tracker)
-    # print(f"DEBUG: area is {area}, v is {v}, t is {t}, start is {start}, end is {end}.")
-    return area + v[0]*t + v[1]
+    simpson = torchquad.Simpson()
+
+    time_before_problem14_obj_integral = time.time()
+    area = simpson.integrate(lambda X: integrand(X, v, demands_locations, lambdas), dim=2, N=999999, integration_domain=[[0, region_radius], [start, end]], backend='torch').item()
+    with open('./timerecords/problem14_obj_integral_time.txt', 'a') as f:
+        f.write(f'{time.time() - time_before_problem14_obj_integral}\n')
+
+    return area/4 + v[0]*t + v[1]
 
 def objective_jac(v, demands_locations, lambdas, t, region_radius, thetarange):
     start, end = thetarange
-    area0, error0 = integrate.dblquad(jac_integrand0, start, end, lambda _: 0, lambda _: region_radius, args=(v, demands_locations, lambdas), epsabs=tol)
-    area1, error1 = integrate.dblquad(jac_integrand1, start, end, lambda _: 0, lambda _: region_radius, args=(v, demands_locations, lambdas), epsabs=tol)
-    return np.array([area0 + t, area1 + 1])
+    simpson = torchquad.Simpson()
+
+    time_before_problem14_jac_integral = time.time()
+    area0 = simpson.integrate(lambda X: jac_integrand0(X, v, demands_locations, lambdas), dim=2, N=999999, integration_domain=[[0, region_radius], [start, end]], backend='torch').item()
+    area1 = simpson.integrate(lambda X: jac_integrand1(X, v, demands_locations, lambdas), dim=2, N=999999, integration_domain=[[0, region_radius], [start, end]], backend='torch').item()
+    with open('./timerecords/problem14_jac_integral_time.txt', 'a') as f:
+        f.write(f'{time.time() - time_before_problem14_jac_integral}\n')
+
+    return np.array([area0/4 + t, area1/4 + 1])
 
 def constraint_and_jac(demands_locations, lambdas, region_radius):
-    # x_in_R_constraint = optimize.NonlinearConstraint(lambda x: np.sqrt(x[0]**2 + x[1]**2), 0, region_radius)
-    # result = optimize.minimize(lambda x_cdnt: min_modified_norm(x_cdnt, demands_locations, lambdas), x0 = np.ones(2), method='SLSQP', constraints=x_in_R_constraint)
-    # return np.array([result.fun, 1]), np.array([result.fun, 1]) # because the constraint below is v0*modified_min_norm + v1 >= 0
     return np.array([min(-lambdas), 1]), np.array([min(-lambdas), 1])
 
 def minimize_problem14(demands, thetarange, lambdas, t, region_radius):
     demands_locations = np.array([demands[i].get_cdnt() for i in range(len(demands))])
     constraint_coeff, constraint_jac = constraint_and_jac(demands_locations, lambdas, region_radius)
     constraints_dict = {'type': 'ineq', 'fun': lambda v: constraint_coeff @ v, 'jac': lambda _: constraint_jac}
-    bound = optimize.Bounds(0.0001, np.inf)
-    result = optimize.minimize(objective_function, x0=np.array([0.0001, 1]), args=(demands_locations, lambdas, t, region_radius, thetarange), jac=objective_jac, method='SLSQP', bounds=bound, constraints=constraints_dict)
+    bound = optimize.Bounds(0, np.inf)
+    result = optimize.minimize(objective_function, x0=np.array([0., 1]), args=(demands_locations, lambdas, t, region_radius, thetarange), jac=objective_jac, method='SLSQP', bounds=bound, constraints=constraints_dict)
     return result.x, result.fun
-
-
-# v, func_value = minimize_problem14(demands, lambdas_temporary, t_temporary, region)

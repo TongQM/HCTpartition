@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from scipy import optimize
+import gurobipy as gp
 from math import pi, cos, sin
 import os
 
@@ -130,9 +131,20 @@ class Polyhedron:
         self.ineq_constraints = optimize.LinearConstraint(self.A, -np.inf, self.b)
 
     def find_analytic_center(self, x0):
+        # Find a feasible solution to the problem first
+        find_feasible_sol = gp.Model('find_feasible_sol')
+        find_feasible_sol.setParam('OutputFlag', 1)
+        x = find_feasible_sol.addMVar(shape=self.dim, lb=-1, ub=1, name='x')
+        find_feasible_sol.addConstr(self.B @ x == self.c)
+        find_feasible_sol.addConstr(self.A @ x <= self.b)
+        find_feasible_sol.setObjective(0, gp.GRB.MINIMIZE)
+        find_feasible_sol.optimize()
+        # assert find_feasible_sol.status == gp.GRB.OPTIMAL, find_feasible_sol.status
+        x0 = x.X
+
         objective = lambda x: -np.sum(np.log(self.b - self.A @ x + 1e-6))  # To ensure log(b - A @ x) is defined.
         objective_jac = lambda x: np.sum(np.array([self.A[i, :]/(self.b[i] - self.A[i, :] @ x) for i in range(self.A.shape[0])]), axis=0)
-        result = optimize.minimize(objective, x0, method='SLSQP', constraints=[self.ineq_constraints, self.eq_constraints], jac='cs', options={'maxiter': 1000,'disp': False})
+        result = optimize.minimize(objective, x0, method='SLSQP', constraints=[self.ineq_constraints, self.eq_constraints], jac='cs', options={'maxiter': 1000,'disp': True})
         assert result.success, result.message
         analytic_center, analytic_center_val = result.x, result.fun            
         return analytic_center, analytic_center_val

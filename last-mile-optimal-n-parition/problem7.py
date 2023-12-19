@@ -9,7 +9,6 @@ from scipy import optimize
 from classes import Region, Coordinate, Demands_generator, Demand, append_df_to_csv
 
 # Some previously used instrumental functions
-# Instrumental functions
 @nb.jit(nopython=True)
 def norm_func(x, y):
     return np.sqrt(np.sum(np.square(x - y)))
@@ -88,7 +87,12 @@ def jac_integrandj(X, lambdas, v, demands_locations, j):
 def objective_function(v, demands_locations, lambdas, t, region_radius, thetarange):
     start, end = thetarange
     simpson = torchquad.Simpson()
+
+    time_before_problem7_obj_integral = time.time()
     sum_integral = simpson.integrate(lambda X: integrand(X, lambdas, v, demands_locations), dim=2, N=10000001, integration_domain=[[0, region_radius], [start, end]], backend='torch').item()
+    with open('./timerecords/problem7_obj_integral_time.txt', 'a') as f:
+        f.write(f'{time.time() - time_before_problem7_obj_integral}\n')
+    
     return 1/4*sum_integral + v[0]*t + np.mean(v[1:])
 
 def objective_jac(v, demands_locations, lambdas, t, region_radius, thetarange):
@@ -96,8 +100,9 @@ def objective_jac(v, demands_locations, lambdas, t, region_radius, thetarange):
     n = demands_locations.shape[0]
     jac = np.zeros(n + 1)
     simpson = torchquad.Simpson()
-    jac[0] = 1/4 * simpson.integrate(lambda X: jac_integrand0(X, lambdas, v, demands_locations), dim=2, N=10000001, integration_domain=[[0, region_radius], [start, end]], backend='torch').item() + t
 
+    time_before_problem7_jac_integral = time.time()
+    jac[0] = 1/4 * simpson.integrate(lambda X: jac_integrand0(X, lambdas, v, demands_locations), dim=2, N=10000001, integration_domain=[[0, region_radius], [start, end]], backend='torch').item() + t
     # The precompiled version is even slower, so we don't use it.
     # for j in torch.range(1, n): # notice torch.range is inclusive on both ends, hence we use n as upper bound
     #     if j == 1:
@@ -110,7 +115,9 @@ def objective_jac(v, demands_locations, lambdas, t, region_radius, thetarange):
 
     for j in range(1, n+1):
         jac[j] = 1/4 * simpson.integrate(lambda X: jac_integrandj(X, lambdas, v, demands_locations, j), dim=2, N=10000001, integration_domain=[[0, region_radius], [start, end]], backend='torch').item() + 1/n
-    # print(f"DEBUG: jac is {jac}.")
+    with open('./timerecords/problem7_jac_integral_time.txt', 'a') as f:
+        f.write(f'{time.time() - time_before_problem7_jac_integral}\n')
+
     return jac
 
 

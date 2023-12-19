@@ -62,7 +62,7 @@ def findWorstTSPDensity(region: Region, demands, thetarange: list=[0, 2*np.pi], 
         '''Build an lower bounding f_tilde that us feasible for (4) by construction.'''
         # find_lower_bound_time_tracker = pd.DataFrame(columns=['time'])
         # start_time_find_lower_bound = time.time()
-        v_tilde, problem7_func_val = minimize_problem7(lambdas_bar, demands, thetarange, t, region.radius)
+        v_tilde, problem7_func_val = minimize_problem7(lambdas_bar, demands, thetarange, t, region.radius, tol)
         lower_integrand = lambda r, theta, demands_locations, lambdas_bar, v_tilde: r*np.sqrt(f_tilde(r, theta, demands_locations, lambdas_bar, v_tilde))
         LB, LB_error = integrate.dblquad(lower_integrand, start, end, lambda _: 0, lambda _: region.radius, args=(demands_locations, lambdas_bar, v_tilde), epsabs=tol)
         # time3 = time.time()

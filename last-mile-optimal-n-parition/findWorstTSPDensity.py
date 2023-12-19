@@ -40,7 +40,7 @@ def findWorstTSPDensity(region: Region, demands, thetarange: list=[0, 2*np.pi], 
         starttime = time.time()
         lambdas_bar, lambdas_bar_func_val = polyhedron.find_analytic_center(lambdas_bar)
         time1 = time.time()
-        # print(f'Find analytic center: Lambdas_bar is {lambdas_bar}, with value {lambdas_bar_func_val}, took {time1 - starttime}s.')
+        print(f'Find analytic center: Lambdas_bar is {lambdas_bar}, with value {lambdas_bar_func_val}, took {time1 - starttime}s.')
 
         demands_locations = np.array([demands[i].get_cdnt() for i in range(len(demands))])
 

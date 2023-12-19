@@ -89,11 +89,13 @@ class Demand:
 
 
 class Demands_generator:
-    def __init__(self, region: Region, Num_demands_pts: int):
+    def __init__(self, region: Region, Num_demands_pts: int, seed=11):
         self.region = region
         self.Num_demands_pts = Num_demands_pts
+        self.seed = seed
 
     def generate(self):
+        np.random.seed(self.seed)
         self.rs = np.random.uniform(low=0, high=self.region.radius, size=self.Num_demands_pts)
         self.thetas = np.random.uniform(low=0, high=2*pi, size=self.Num_demands_pts)
         demands = np.array([Demand(Coordinate(self.rs[k], self.thetas[k]), 1) for k in range(self.Num_demands_pts)])

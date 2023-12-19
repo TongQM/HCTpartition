@@ -79,10 +79,10 @@ def BHHcoef(trange, density_func, region):
     if demands_within.size == 0:
         print(f'DEBUG: No demands within {trange}.')
         return 0
-    # print(f"DEBUG: demands_within {demands_within} is in {std_start, std_end}.")
+    print(f"DEBUG: demands_within {demands_within} is in {std_start, std_end}.")
     # find_worstTSPDensity_time_tracker = pd.DataFrame(columns=['time'])
     # start_time_findWorstTSPDensity = time()
-    density_func = findWorstTSPDensity(region, demands_within, trange, t=1, epsilon=0.1, tol=1e-3)
+    density_func = findWorstTSPDensity(region, demands_within, trange, t, epsilon=0.1, tol=1e-3)
     # find_worstTSPDensity_time_tracker.loc = find_worstTSPDensity_time_tracker.append({'time': time() - start_time_findWorstTSPDensity}, ignore_index=True)
     # append_df_to_csv('find_worstTSPDensity_time_tracker.csv', find_worstTSPDensity_time_tracker)
     coef, error = integrate.dblquad(integrand, start, end, lambda _: 0, lambda _: region.radius, args=(density_func,))
@@ -408,7 +408,7 @@ for i in range(n):
 c = np.zeros(n)
 c[-1] = 1
 
-generator = Demands_generator(region, 3)
+generator = Demands_generator(region, 20)
 t, epsilon = 0.25, 0.1
 tol = 1e-4
 demands = generator.generate()

@@ -41,13 +41,13 @@ def integrand(X, lambdas, v, demands_locations):
     X is a n-by-2 matrix, the first column is r, the second column is theta.
     '''
     dtype = X.dtype
-    # print(f"lambdas is {lambdas}., v0 is {v[0]}, v1 is {v[1:]}.")
+    print(f"lambdas is {lambdas}., v0 is {v[0]}, v1 is {v[1:]}.")
     lambdas, v1, v0 = torch.tensor(lambdas, dtype=dtype), torch.tensor(v[1:], dtype=dtype), v[0]
-    # print(f"lambdas is {lambdas}., v0 is {v0}, v1 is {v1}.")
+    print(f"lambdas is {lambdas}., v0 is {v0}, v1 is {v1}.")
     demands_locations = torch.tensor(demands_locations, dtype=dtype)
     x_cdnt = X.clone()
-    x_cdnt[:, 0] = X[:, 0]*torch.cos(x_cdnt[:, 1])
-    x_cdnt[:, 1] = X[:, 0]*torch.sin(x_cdnt[:, 1])
+    x_cdnt[:, 0] = X[:, 0]*torch.cos(X[:, 1])
+    x_cdnt[:, 1] = X[:, 0]*torch.sin(X[:, 1])
     norms = torch.cdist(x_cdnt, demands_locations, p=2)
     modified_norms, modified_norms_indices = torch.min(norms - lambdas, dim=1)
     raw_intgrd = 1 / (v0*norms[torch.arange(norms.shape[0]), modified_norms_indices] + v1[modified_norms_indices])
@@ -76,7 +76,7 @@ def integrand(X, lambdas, v, demands_locations):
 
 def objective_function(v: list[float], demands_locations: list[list[float]], lambdas: list[float], t: float, region_radius, thetarange) -> float:
     # print(f"DEBUG: v is {v, type(v[1])}.")
-    v = np.real(v)
+    # v = np.real(v)
     start, end = thetarange
     simpson = torchquad.Simpson()
     sum_integral = simpson.integrate(lambda X: integrand(X, lambdas, v, demands_locations), dim=2, N=1000000, integration_domain=[[0, region_radius], [start, end]], backend='torch').item()
@@ -97,7 +97,7 @@ def minimize_problem7(lambdas: list[float], demands: list[Demand], thetarange: l
     # constraints = [optimize.NonlinearConstraint(lambda v: constraint_func(lambdas, demands, v, region_radius), 0, np.inf)]
     demands_locations = np.array([demands[i].get_cdnt() for i in range(len(demands))])
     bounds = optimize.Bounds(0, np.inf)
-    result = optimize.minimize(objective_function, x0=np.append(0, np.ones(demands.shape[0])), args=(demands_locations, lambdas, t, region_radius, thetarange), jac='cs', method='SLSQP',  bounds=bounds)
+    result = optimize.minimize(objective_function, x0=np.append(1, np.ones(demands.shape[0])), args=(demands_locations, lambdas, t, region_radius, thetarange), jac='cs', method='SLSQP',  bounds=bounds)
     return result.x, result.fun
 
 

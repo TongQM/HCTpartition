@@ -122,13 +122,14 @@ class Polyhedron:
         self.dim = dimension
         self.eq_constraints = {'type': 'eq', 'fun': lambda x: self.B @ x - self.c , 'jac': lambda _: self.B}
         # optimize.LinearConstraint(B, c, c)
-        self.ineq_constraints = {'type': 'ineq', 'fun': lambda x: self.b - self.A @ x + 1e-6, 'jac': lambda _: -self.A}
+        self.ineq_constraints = {'type': 'ineq', 'fun': lambda x: self.b - self.A @ x - 1e-6, 'jac': lambda _: -self.A}
         # optimize.LinearConstraint(A, -np.inf, b + 1e-4, keep_feasible=False)
 
     def add_ineq_constraint(self, ai, bi):
         self.A = np.append(self.A, ai.reshape(1, ai.size), axis=0)
         self.b = np.append(self.b, bi)
-        self.ineq_constraints = optimize.LinearConstraint(self.A, -np.inf, self.b)
+        # self.ineq_constraints = optimize.LinearConstraint(self.A, -np.inf, self.b)
+        self.ineq_constraints = {'type': 'ineq', 'fun': lambda x: self.b - self.A @ x - 1e-6, 'jac': lambda _: -self.A}
 
     def find_analytic_center(self, x0):
         # Find a feasible solution to the problem first
@@ -136,15 +137,22 @@ class Polyhedron:
         find_feasible_sol.setParam('OutputFlag', 1)
         x = find_feasible_sol.addMVar(shape=self.dim, lb=-1, ub=1, name='x')
         find_feasible_sol.addConstr(self.B @ x == self.c)
-        find_feasible_sol.addConstr(self.A @ x <= self.b)
+        find_feasible_sol.addConstr(self.A @ x <= self.b - 1e-4)
         find_feasible_sol.setObjective(0, gp.GRB.MINIMIZE)
         find_feasible_sol.optimize()
-        # assert find_feasible_sol.status == gp.GRB.OPTIMAL, find_feasible_sol.status
+        if find_feasible_sol.status == gp.GRB.INFEASIBLE:
+            print('The polyhedron is infeasible.')
+            return "EMPTY"
         x0 = x.X
-
-        objective = lambda x: -np.sum(np.log(self.b - self.A @ x + 1e-6))  # To ensure log(b - A @ x) is defined.
+        # Find the analytic center
+        print(f"b - A @ x: {self.b - self.A @ x0}\n x0: {x0}.")
+        objective = lambda x: -np.sum(np.log(self.b - self.A @ x))  # To ensure log(b - A @ x) is defined.
         objective_jac = lambda x: np.sum(np.array([self.A[i, :]/(self.b[i] - self.A[i, :] @ x) for i in range(self.A.shape[0])]), axis=0)
-        result = optimize.minimize(objective, x0, method='SLSQP', constraints=[self.ineq_constraints, self.eq_constraints], jac='cs', options={'maxiter': 1000,'disp': True})
+        result = optimize.minimize(objective, x0, method='SLSQP', constraints=[self.ineq_constraints, self.eq_constraints], jac=objective_jac, options={'maxiter': 1000,'disp': True})
+        # constraints = [self.ineq_constraints, self.eq_constraints]
+        # for con in constraints:
+        #     con_val = con['fun'](result.x)
+        #     print(f"Constraint {con} value at solution: {con_val} (should be >= 0 for 'ineq')")
         assert result.success, result.message
         analytic_center, analytic_center_val = result.x, result.fun            
         return analytic_center, analytic_center_val

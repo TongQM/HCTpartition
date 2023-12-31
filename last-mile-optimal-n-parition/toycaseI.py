@@ -4,9 +4,10 @@ import torch
 import time
 import torchquad
 import numba as nb
-from openpyxl import load_workbook
 from scipy import optimize
 from classes import Region, Coordinate, Polyhedron, Demand, append_df_to_csv
+
+torchquad.set_up_backend("torch", data_type="float32")
 
 # Problem 7
 # Some previously used instrumental functions
@@ -253,7 +254,7 @@ def findWorstTSPDensity(region, demands, thetarange, t, epsilon, tol: float=1e-4
     lambdas_bar = np.zeros(n)
     polyhedron = Polyhedron(np.eye(n), region.diam*np.ones(n), np.ones((1, n)), 0, n)
     k = 1
-    while (abs(UB - LB) > epsilon and k < 10):
+    while (abs(UB - LB) > epsilon and k < 100):
         print(f'Looking for worst-distribution on {[start, end]}:\nIteration {k} begins: \n')
         starttime = time.time()
         lambdas_bar, lambdas_bar_func_val = polyhedron.find_analytic_center(lambdas_bar)

@@ -1,6 +1,5 @@
 import numpy as np
 import time
-from openpyxl import load_workbook
 import torch
 import torchquad
 import numba as nb

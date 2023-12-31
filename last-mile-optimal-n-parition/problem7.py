@@ -4,7 +4,6 @@ import torch
 import time
 import torchquad
 import numba as nb
-from openpyxl import load_workbook
 from scipy import optimize
 from classes import Region, Coordinate, Demands_generator, Demand, append_df_to_csv
 

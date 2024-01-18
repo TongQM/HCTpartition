@@ -1,15 +1,20 @@
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
 import time
+import torch
+import torchquad
+from problem14 import minimize_problem14
+from problem7 import minimize_problem7
+import torch
+import numpy as np
+
 import numba as nb
-from problem14 import minimize_problem14, min_modified_norm
-from problem7 import minimize_problem7, categorize_x, region_indicator, norm_func
-from classes import Coordinate, Region, Demands_generator, Polyhedron, append_df_to_csv
-from scipy import optimize, integrate, linalg
+import torchquad
+from scipy import optimize
+from classes import Region, Coordinate, Demand, Polyhedron
 
+from torchquad import set_up_backend
+set_up_backend("torch", data_type="float32")
 
-def findWorstTSPDensity(region: Region, demands, thetarange: list=[0, 2*np.pi], t: float=1, epsilon: float=0.1, tol: float=1e-4):
+def findWorstTSPDensity(region, demands, thetarange, t, epsilon, tol: float=1e-4):
     '''
     Algorithm by Carlsson, Behroozl, and Mihic, 2018.
     Code by Yidi Miao, 2023.
@@ -28,76 +33,115 @@ def findWorstTSPDensity(region: Region, demands, thetarange: list=[0, 2*np.pi], 
     '''
 
     start, end = thetarange
-    # print(f'original start is {start}, original end is {end}.')
-    # np.random.seed(11)
     n = demands.shape[0]
+    simpson = torchquad.Simpson()
     UB, LB = np.inf, -np.inf
+    UB_lst, LB_lst = [], []
     lambdas_bar = np.zeros(n)
     polyhedron = Polyhedron(np.eye(n), region.diam*np.ones(n), np.ones((1, n)), 0, n)
     k = 1
-    while (abs(UB - LB) > epsilon):
-        print(f'Looking for worst-distribution on {[start, end]}:\n\tIteration {k} begins: \n')
+    while (abs(UB - LB) > epsilon and k < 100):
+        print(f'\t Looking for worst-distribution on {[start, end]}:\n\t Iteration {k} begins: \n')
         starttime = time.time()
-        lambdas_bar, lambdas_bar_func_val = polyhedron.find_analytic_center(lambdas_bar)
-        time1 = time.time()
-        print(f'Find analytic center: Lambdas_bar is {lambdas_bar}, with value {lambdas_bar_func_val}, took {time1 - starttime}s.')
+        try:
+            result = polyhedron.find_analytic_center(lambdas_bar)
+            if result == "EMPTY": return lambda X: f_tilde(X, demands_locations, lambdas_bar, v_tilde), UB_lst, LB_lst
+            lambdas_bar, lambdas_bar_func_val = result
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            return polyhedron, lambdas_bar, v_tilde
+
+        print(f'\t Find analytic center: Lambdas_bar is {lambdas_bar}, with value {lambdas_bar_func_val}, took {time.time() - starttime}s.\n')
+        with open("./timerecords/find_analytic_center.txt", "a") as f:
+            f.write(f"{time.time() - starttime}\n")
 
         demands_locations = np.array([demands[i].get_cdnt() for i in range(len(demands))])
 
         '''Build an upper bounding f_bar for the original problem (4).'''
-        # find_upper_bound_time_tracker = pd.DataFrame(columns=['time'])
-        # start_time_find_upper_bound = time.time()
+        time_before_minimize_problem14 = time.time()
         v_bar, problem14_func_val = minimize_problem14(demands, thetarange, lambdas_bar, t, region.radius)
-        upper_integrand = lambda r, theta: r*np.sqrt(f_bar(r, theta, demands_locations, lambdas_bar, v_bar))
-        UB, UB_error = integrate.dblquad(upper_integrand, start, end, lambda _: 0, lambda _: region.radius,epsabs=tol)
-        time2 = time.time()
-        # find_upper_bound_time_tracker = find_upper_bound_time_tracker.append({'time': time2 - start_time_find_upper_bound}, ignore_index=True)
+        with open("./timerecords/minimize_problem14.txt", "a") as f:
+            f.write(f"{time.time() - time_before_minimize_problem14}\n")
+
+        time_before_ub_integral = time.time()
+        upper_integrand = lambda X: X[:, 0]*torch.sqrt(f_bar(X, demands_locations, lambdas_bar, v_bar))
+        UB = simpson.integrate(upper_integrand, dim=2, N=999999, integration_domain=[[0, region.radius],[start, end]], backend='torch').item()
+        with open("./timerecords/ub_integral.txt", "a") as f:
+            f.write(f"{time.time() - time_before_ub_integral}\n")
+
+        print(f'\t UB is {UB}, took {time.time() - starttime}s.\n')
+
         if UB < 0:
-            print(f'UB is negative: {UB}.')
-            print(f'v_bar is {v_bar}, problem14_func_val is {problem14_func_val}.')
+            print(f'\t UB is negative: {UB}.')
+            print(f'\t v_bar is {v_bar}, problem14_func_val is {problem14_func_val}.')
             break
-        # print(f'Find upper bound: Upper bound is {UB}, with error {UB_error}, took {time2 - time1}s.')
-        # append_df_to_csv('find_upper_bound_time_tracker.csv', find_upper_bound_time_tracker)
 
         '''Build an lower bounding f_tilde that us feasible for (4) by construction.'''
-        # find_lower_bound_time_tracker = pd.DataFrame(columns=['time'])
-        # start_time_find_lower_bound = time.time()
+        time_before_minimize_problem7 = time.time()
         v_tilde, problem7_func_val = minimize_problem7(lambdas_bar, demands, thetarange, t, region.radius, tol)
-        lower_integrand = lambda r, theta, demands_locations, lambdas_bar, v_tilde: r*np.sqrt(f_tilde(r, theta, demands_locations, lambdas_bar, v_tilde))
-        LB, LB_error = integrate.dblquad(lower_integrand, start, end, lambda _: 0, lambda _: region.radius, args=(demands_locations, lambdas_bar, v_tilde), epsabs=tol)
-        # time3 = time.time()
-        # find_lower_bound_time_tracker = find_lower_bound_time_tracker.append({'time': time3 - start_time_find_lower_bound}, ignore_index=True)
-        # print(f'Find lower bound: Lower bound is {LB}, with error {LB_error}, took {time3 - time2}s.\n')
-        # append_df_to_csv('find_lower_bound_time_tracker.csv', find_lower_bound_time_tracker)
+        with open("./timerecords/minimize_problem7.txt", "a") as f:
+            f.write(f"{time.time() - time_before_minimize_problem7}\n")
+
+        time_before_lb_integral = time.time()
+        lower_integrand = lambda X: X[:, 0]*torch.sqrt(f_tilde(X, demands_locations, lambdas_bar, v_tilde))
+        LB = simpson.integrate(lower_integrand, dim=2, N=999999, integration_domain=[[0, region.radius],[start, end]], backend='torch').item()
+        with open("./timerecords/lb_integral.txt", "a") as f:
+            f.write(f"{time.time() - time_before_lb_integral}\n")
+        
+        print(f'\t LB is {LB}, took {time.time() - starttime}s.\n')
 
         '''Update g.'''
         g = np.zeros(len(demands))
+        time_before_g_integral = time.time()
         for i in range(len(demands)):
-            integrandi = lambda r, theta, demands, lambdas_bar, v_bar: r*region_indicator(i, np.array([r*np.cos(theta), r*np.sin(theta)]), lambdas_bar, demands_locations)*f_bar(r, theta, demands, lambdas_bar, v_bar) 
-            g[i], g_error = integrate.dblquad(integrandi, start, end, lambda _: 0, lambda _: region.radius, args=(demands_locations, lambdas_bar, v_bar), epsabs=tol)
+            integrandi = lambda X: X[:, 0]*f_bar(X, demands_locations, lambdas_bar, v_bar, masked=True, j=i+1) 
+            g[i] = simpson.integrate(integrandi, dim=2, N=999999, integration_domain=[[0, region.radius], [start, end]], backend='torch').item()
+        with open("./timerecords/g_integral.txt", "a") as f:
+            f.write(f"{time.time() - time_before_g_integral}\n")
+        
         '''Update polyheron Lambda to get next analytic center.'''
         polyhedron.add_ineq_constraint(g, g.T @ lambdas_bar)
-        time4 = time.time()
-        # print(f'It took {time4 - time3}s to get vector g.\n')
 
-        endtime = time.time()
-        # print(f'End of iteration {k}.\n  The whole iteration took {endtime - starttime}s.\n')
+        print(f'\t End of iteration {k}.\n  The whole iteration took {time.time() - starttime}s.\n')
         k += 1
+        UB_lst.append(UB), LB_lst.append(LB)
 
-    return lambda r, theta: f_tilde(r, theta, demands_locations, lambdas_bar, v_tilde)
+    return lambda X: f_tilde(X, demands_locations, lambdas_bar, v_tilde), UB_lst, LB_lst
 
 
-@nb.jit(nopython=True)
-def norm_func(x, y):
-    return np.sqrt(np.sum(np.square(x - y)))
+def f_bar(X, demands_locations, lambdas_bar, v_bar, masked=False, j=-1):
+    '''
+    X is a n-by-2 matrix, the first column is r, the second column is theta.
+    '''
+    dtype = X.dtype
+    lambdas = torch.tensor(lambdas_bar, dtype=dtype)
+    demands_locations = torch.tensor(demands_locations, dtype=dtype)
+    x_cdnt = X.clone()
+    x_cdnt[:, 0] = X[:, 0]*torch.cos(x_cdnt[:, 1])
+    x_cdnt[:, 1] = X[:, 0]*torch.sin(x_cdnt[:, 1])
+    norms = torch.cdist(x_cdnt, demands_locations, p=2)
+    modified_norms, modified_norms_indices = torch.min(norms - lambdas, dim=1)
+    raw_intgrd = 1 / (4*torch.square(v_bar[0]*modified_norms + v_bar[1]))
+    if masked:        
+        mask = modified_norms_indices != j-1
+        masked_intgrd = raw_intgrd
+        masked_intgrd[mask] = 0
+        return masked_intgrd
+    return raw_intgrd
 
-@nb.njit
-def f_bar(r, theta, demands_locations, lambdas_bar, v_bar):
-    x_cdnt = np.array([r*np.cos(theta), r*np.sin(theta)])
-    return 1/4 * pow((v_bar[0]*min_modified_norm(x_cdnt, demands_locations, lambdas_bar) + v_bar[1]), -2)
 
-@nb.njit
-def f_tilde(r, theta, demands_locations, lambdas_bar, v_tilde):
-    x_cdnt = np.array([r*np.cos(theta), r*np.sin(theta)])
-    xi, vi = categorize_x(x_cdnt, demands_locations, lambdas_bar, v_tilde)
-    return 1/4 * pow(v_tilde[0] * norm_func(x_cdnt, xi) + vi, -2)
+def f_tilde(X, demands_locations, lambdas_bar, v_tilde):
+    '''
+    X is a n-by-2 matrix, the first column is r, the second column is theta.
+    '''
+    dtype = X.dtype
+    lambdas, v1, v0 = torch.tensor(lambdas_bar, dtype=dtype), torch.tensor(v_tilde[1:], dtype=dtype), v_tilde[0]
+    demands_locations = torch.tensor(demands_locations, dtype=dtype)
+    x_cdnt = X.clone()
+    x_cdnt[:, 0] = X[:, 0]*torch.cos(x_cdnt[:, 1])
+    x_cdnt[:, 1] = X[:, 0]*torch.sin(x_cdnt[:, 1])
+    norms = torch.cdist(x_cdnt, demands_locations, p=2)
+    modified_norms, modified_norms_indices = torch.min(norms - lambdas, dim=1)
+    corresponding_norms = norms[torch.arange(norms.shape[0]), modified_norms_indices]
+    raw_intgrd = 1 / (4*torch.square(v0*corresponding_norms + v1[modified_norms_indices]))
+    return raw_intgrd

@@ -71,7 +71,6 @@ def integrand(r, t, density_func):
 def BHHcoef(trange, density_func, region):
     start, end = trange
     std_start, std_end = start % (2*pi), end % (2*pi)
-    # print(f"DEBUG: modified start is {start}, modified end is {end}.")
     if std_start <= std_end:
         demands_within = np.array([dmd for dmd in demands if dmd.location.theta >= std_start and dmd.location.theta <= std_end])
     else:
@@ -80,11 +79,7 @@ def BHHcoef(trange, density_func, region):
         print(f'DEBUG: No demands within {trange}.')
         return 0
     print(f"DEBUG: demands_within {demands_within} is in {std_start, std_end}.")
-    # find_worstTSPDensity_time_tracker = pd.DataFrame(columns=['time'])
-    # start_time_findWorstTSPDensity = time()
     density_func = findWorstTSPDensity(region, demands_within, trange, t, epsilon=0.1, tol=1e-3)
-    # find_worstTSPDensity_time_tracker.loc = find_worstTSPDensity_time_tracker.append({'time': time() - start_time_findWorstTSPDensity}, ignore_index=True)
-    # append_df_to_csv('find_worstTSPDensity_time_tracker.csv', find_worstTSPDensity_time_tracker)
     coef, error = integrate.dblquad(integrand, start, end, lambda _: 0, lambda _: region.radius, args=(density_func,))
     return coef # error
 

@@ -1,77 +1,44 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import gurobipy as gp
+import torchquad, torch
 from scipy import integrate, optimize, stats
 from math import sqrt, pi
-from numba import jit, njit
 from findWorstTSPDensity import findWorstTSPDensity
 from classes import Region, Demands_generator, Demand, Coordinate
 
 counter = 0
 # Help functions
-
-def show_density(f_tilde, resolution=100, t=0.4, dmd_index=0, start=0, end=2*pi):
-    f = f_tilde
-    fig = plt.figure()
-    ax = fig.add_subplot(projection='polar')
-
-    # Create the mesh in polar coordinates and compute corresponding Z.
-    r = np.linspace(0, region.radius, resolution)
-    p = np.linspace(0, 2*np.pi, resolution)
-    R, P = np.meshgrid(r, p)
-    f_vectorized = np.vectorize(f)
-    Z = f_vectorized(R, P)
-
-    # Plot the surface.
-    plt.grid(False)
-    ctf = ax.pcolormesh(P, R, Z, cmap=plt.colormaps['Greys'], shading='auto')
-    ax.scatter(generator.thetas, generator.rs, c='yellow')
-
-    # Add color bar
-    plt.colorbar(ctf)
-
-    # Tweak the limits and add latex math labels.
-    # ax.set_xlabel(r'$X$')
-    # ax.set_ylabel(r'$Y$')
-
-    # fig.show()
-    plt.savefig(f'pics/{dmd_index}-{t}.png')
-
-
 def polar2Cartesian(r, theta):
     return np.array([r*np.cos(theta), r*np.sin(theta)])
 
 def Cartesian2polar(x, y):
     return np.array([np.sqrt(x**2 + y**2), np.arctan2(y, x)])
 
-@njit
-def distance(xc, yc):
-    '''
-    return the Euclidean distance between two points with coordinates (xc, yc) under Cartesian system
-    '''
-    return np.linalg.norm(xc - yc, 2)
-
-# Global functions
-
-@njit
-def density_func(r, t):
-    raise NotImplementedError 
-    return density
-
-# @njit
 def integrand(r, t, density_func):
     return sqrt(density_func(r, t))*r
 
+def density_func(r, t):
+    return NotImplementedError
 
+# Global functions
 def BHHcoef(trange, density_func, region):
     start, end = trange
-    density_func = findWorstTSPDensity(region, demands, trange, t=1, epsilon=0.1, tol=1e-3)
-    show_density(density_func, resolution=100, t=0.25, start=start, end=end)
-    coef, error = integrate.dblquad(integrand, start, end, lambda _: 0, lambda _: region.radius, args=(density_func,))
-    return coef # error
+    std_start, std_end = start % (2*pi), end % (2*pi)
+    if std_start <= std_end:
+        demands_within = np.array([dmd for dmd in demands if dmd.location.theta >= std_start and dmd.location.theta <= std_end])
+    else:
+        demands_within = np.array([dmd for dmd in demands if dmd.location.theta >= std_start or dmd.location.theta <= std_end])
+    if demands_within.size == 0:
+        print(f'DEBUG: No demands within {trange}.')
+        return 0
+    print(f"DEBUG: demands_within {demands_within} is in {std_start, std_end}.")
+    density_func, UB_lst, LB_lst = findWorstTSPDensity(region, demands_within, trange, t, epsilon=0.1, tol=1e-3)
+    simpson = torchquad.Simpson()
+    coef = simpson.integrate(lambda X: X[:, 0]*torch.sqrt(density_func(X)), dim=2, N=999999, integration_domain=[[0, region.radius],[start, end]], backend='torch').item()
+    return coef
 
 # Classes
-
 class Region:
     def __init__(self, radius: float, depot=np.array([0, 0])):
         self.radius = radius
@@ -324,7 +291,7 @@ class BranchAndBound:
             # self.best_ub = min(self.ub_ls)
             # self.worst_lb = min(self.lb_ls)
             self.worst_lb, self.best_ub = self.get_iter_bds(self.initial_node)
-            print(f"DEBUG: best ub: {self.best_ub}\n\t worst lb: {self.worst_lb}\n\t gap: {self.best_ub - self.worst_lb}.")
+            print(f"ITERATION {counter}: best ub: {self.best_ub}\n\t worst lb: {self.worst_lb}\n\t gap: {self.best_ub - self.worst_lb}.")
             for node in self.node_ls:
                 if node.lb > self.best_ub:
                     self.node_ls.remove(node)

@@ -105,6 +105,8 @@ def findWorstTSPDensity(region, demands, thetarange, t, epsilon, tol: float=1e-4
         print(f'\t End of iteration {k}.\n  The whole iteration took {time.time() - starttime}s.\n')
         k += 1
         UB_lst.append(UB), LB_lst.append(LB)
+        if UB < LB:
+            raise Exception(f"UB {UB} is smaller than LB {LB}.")
 
     return lambda X: f_tilde(X, demands_locations, lambdas_bar, v_tilde), UB_lst, LB_lst
 

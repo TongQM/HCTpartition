@@ -203,6 +203,7 @@ class Node:
         for i in range(self.n):
             t1 = self.polyhedron.find_min_value_of(2*i - 1)
             t2 = self.polyhedron.find_min_value_of(2*i)
+            print(f"DEBUG: t1: {t1}, t2: {t2}.")
             trange = np.array([i/3 - t1, i/3 + t2])*2*pi
             BHHcoef = self.evaluate_single_BHHcoef(trange, density_func)
             BHHcoef_ls.append(BHHcoef)
@@ -288,9 +289,9 @@ class BranchAndBound:
             self.ub_ls = [bd[1] for bd in bds_ls]
             
             # Pruning unnecessary nodes
-            # self.best_ub = min(self.ub_ls)
-            # self.worst_lb = min(self.lb_ls)
-            self.worst_lb, self.best_ub = self.get_iter_bds(self.initial_node)
+            self.best_ub = min(self.ub_ls)
+            self.worst_lb = min(self.lb_ls)
+            # self.worst_lb, self.best_ub = self.get_iter_bds(self.initial_node)
             print(f"ITERATION {counter}: best ub: {self.best_ub}\n\t worst lb: {self.worst_lb}\n\t gap: {self.best_ub - self.worst_lb}.")
             for node in self.node_ls:
                 if node.lb > self.best_ub:

@@ -134,7 +134,7 @@ class Polyhedron:
     def find_analytic_center(self, x0):
         # Find a feasible solution to the problem first
         find_feasible_sol = gp.Model('find_feasible_sol')
-        find_feasible_sol.setParam('OutputFlag', 0)
+        find_feasible_sol.setParam('OutputFlag', 1)
         x = find_feasible_sol.addMVar(shape=self.dim, lb=-1, ub=1, name='x')
         find_feasible_sol.addConstr(self.B @ x == self.c)
         find_feasible_sol.addConstr(self.A @ x <= self.b - 1e-4)

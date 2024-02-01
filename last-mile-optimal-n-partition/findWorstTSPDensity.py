@@ -43,31 +43,32 @@ def findWorstTSPDensity(region, demands, thetarange, t, epsilon, tol: float=1e-4
     while (abs(UB - LB) > epsilon and k < 100):
         print(f'\t Looking for worst-distribution on {[start, end]}:\n\t Iteration {k} begins: \n')
         starttime = time.time()
-        try:
-            result = polyhedron.find_analytic_center(lambdas_bar)
-            if result == "EMPTY": return lambda X: f_tilde(X, demands_locations, lambdas_bar, v_tilde), UB_lst, LB_lst
-            lambdas_bar, lambdas_bar_func_val = result
-        except Exception as e:
-            print(f"An error occurred: {e}")
-            return polyhedron, lambdas_bar, v_tilde
+        # try:
+        result = polyhedron.find_analytic_center(lambdas_bar)
+        if result == "EMPTY": return lambda X: f_tilde(X, demands_locations, lambdas_bar, v_tilde), UB_lst, LB_lst
+        lambdas_bar, lambdas_bar_func_val = result
+        print(f"lambdas_bar, lambdas_bar_func_val: {lambdas_bar}, {lambdas_bar_func_val}.")
+        # except Exception as e:
+        #     print(f"An error occurred: {e}")
+        #     return polyhedron, lambdas_bar, v_tilde
 
         print(f'\t Find analytic center: Lambdas_bar is {lambdas_bar}, with value {lambdas_bar_func_val}, took {time.time() - starttime}s.\n')
-        with open("./timerecords/find_analytic_center.txt", "a") as f:
-            f.write(f"{time.time() - starttime}\n")
+        # with open("./timerecords/find_analytic_center.txt", "a") as f:
+        #     f.write(f"{time.time() - starttime}\n")
 
         demands_locations = np.array([demands[i].get_cdnt() for i in range(len(demands))])
 
         '''Build an upper bounding f_bar for the original problem (4).'''
         time_before_minimize_problem14 = time.time()
         v_bar, problem14_func_val = minimize_problem14(demands, thetarange, lambdas_bar, t, region.radius)
-        with open("./timerecords/minimize_problem14.txt", "a") as f:
-            f.write(f"{time.time() - time_before_minimize_problem14}\n")
-
+        # with open("./timerecords/minimize_problem14.txt", "a") as f:
+        #     f.write(f"{time.time() - time_before_minimize_problem14}\n")
+        print(f'\t v_bar is {v_bar}, problem14_func_val is {problem14_func_val}.\n')
         time_before_ub_integral = time.time()
         upper_integrand = lambda X: X[:, 0]*torch.sqrt(f_bar(X, demands_locations, lambdas_bar, v_bar))
         UB = simpson.integrate(upper_integrand, dim=2, N=999999, integration_domain=[[0, region.radius],[start, end]], backend='torch').item()
-        with open("./timerecords/ub_integral.txt", "a") as f:
-            f.write(f"{time.time() - time_before_ub_integral}\n")
+        # with open("./timerecords/ub_integral.txt", "a") as f:
+        #     f.write(f"{time.time() - time_before_ub_integral}\n")
 
         print(f'\t UB is {UB}, took {time.time() - starttime}s.\n')
 
@@ -79,14 +80,14 @@ def findWorstTSPDensity(region, demands, thetarange, t, epsilon, tol: float=1e-4
         '''Build an lower bounding f_tilde that us feasible for (4) by construction.'''
         time_before_minimize_problem7 = time.time()
         v_tilde, problem7_func_val = minimize_problem7(lambdas_bar, demands, thetarange, t, region.radius, tol)
-        with open("./timerecords/minimize_problem7.txt", "a") as f:
-            f.write(f"{time.time() - time_before_minimize_problem7}\n")
-
+        # with open("./timerecords/minimize_problem7.txt", "a") as f:
+        #     f.write(f"{time.time() - time_before_minimize_problem7}\n")
+        print(f'\t v_tilde is {v_tilde}, problem7_func_val is {problem7_func_val}.\n')
         time_before_lb_integral = time.time()
         lower_integrand = lambda X: X[:, 0]*torch.sqrt(f_tilde(X, demands_locations, lambdas_bar, v_tilde))
         LB = simpson.integrate(lower_integrand, dim=2, N=999999, integration_domain=[[0, region.radius],[start, end]], backend='torch').item()
-        with open("./timerecords/lb_integral.txt", "a") as f:
-            f.write(f"{time.time() - time_before_lb_integral}\n")
+        # with open("./timerecords/lb_integral.txt", "a") as f:
+        #     f.write(f"{time.time() - time_before_lb_integral}\n")
         
         print(f'\t LB is {LB}, took {time.time() - starttime}s.\n')
 
@@ -96,8 +97,9 @@ def findWorstTSPDensity(region, demands, thetarange, t, epsilon, tol: float=1e-4
         for i in range(len(demands)):
             integrandi = lambda X: X[:, 0]*f_bar(X, demands_locations, lambdas_bar, v_bar, masked=True, j=i+1) 
             g[i] = simpson.integrate(integrandi, dim=2, N=999999, integration_domain=[[0, region.radius], [start, end]], backend='torch').item()
-        with open("./timerecords/g_integral.txt", "a") as f:
-            f.write(f"{time.time() - time_before_g_integral}\n")
+        # with open("./timerecords/g_integral.txt", "a") as f:
+        #     f.write(f"{time.time() - time_before_g_integral}\n")
+        print(f'\t g is {g}.\n')
         
         '''Update polyheron Lambda to get next analytic center.'''
         polyhedron.add_ineq_constraint(g, g.T @ lambdas_bar)
@@ -105,8 +107,8 @@ def findWorstTSPDensity(region, demands, thetarange, t, epsilon, tol: float=1e-4
         print(f'\t End of iteration {k}.\n  The whole iteration took {time.time() - starttime}s.\n')
         k += 1
         UB_lst.append(UB), LB_lst.append(LB)
-        if UB < LB:
-            raise Exception(f"UB {UB} is smaller than LB {LB}.")
+        # if UB < LB:
+        #     raise Exception(f"UB {UB} is smaller than LB {LB}.")
 
     return lambda X: f_tilde(X, demands_locations, lambdas_bar, v_tilde), UB_lst, LB_lst
 

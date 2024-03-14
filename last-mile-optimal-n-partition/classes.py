@@ -134,7 +134,7 @@ class Polyhedron:
     def find_analytic_center(self, x0):
         # Find a feasible solution to the problem first
         find_feasible_sol = gp.Model('find_feasible_sol')
-        find_feasible_sol.setParam('OutputFlag', 1)
+        find_feasible_sol.setParam('OutputFlag', 0)
         x = find_feasible_sol.addMVar(shape=self.dim, lb=-1, ub=1, name='x')
         find_feasible_sol.addConstr(self.B @ x == self.c)
         find_feasible_sol.addConstr(self.A @ x <= self.b - 1e-4)
@@ -145,10 +145,10 @@ class Polyhedron:
             return "EMPTY"
         x0 = x.X
         # Find the analytic center
-        print(f"b - A @ x: {self.b - self.A @ x0}\n x0: {x0}.")
+        # print(f"b - A @ x: {self.b - self.A @ x0}\n x0: {x0}.")
         objective = lambda x: -np.sum(np.log(self.b - self.A @ x))  # To ensure log(b - A @ x) is defined.
         objective_jac = lambda x: np.sum(np.array([self.A[i, :]/(self.b[i] - self.A[i, :] @ x) for i in range(self.A.shape[0])]), axis=0)
-        result = optimize.minimize(objective, x0, method='SLSQP', constraints=[self.ineq_constraints, self.eq_constraints], jac=objective_jac, options={'maxiter': 1000,'disp': True})
+        result = optimize.minimize(objective, x0, method='SLSQP', constraints=[self.ineq_constraints, self.eq_constraints], jac=objective_jac, options={'maxiter': 1000,'disp': False})
         # constraints = [self.ineq_constraints, self.eq_constraints]
         # for con in constraints:
         #     con_val = con['fun'](result.x)
